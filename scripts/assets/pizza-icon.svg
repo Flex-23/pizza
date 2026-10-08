@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Pizza Day & Night — the brand mark.
+
+    A single pizza slice, point down, drawn as flat shapes with no gradients or
+    thin strokes: this is rendered down to 16×16 for a browser tab, where any
+    detail finer than a few pixels turns to mud. The dark rounded square behind
+    it is what keeps the slice readable on both a light and a dark tab strip —
+    a transparent mark would disappear into one of them.
+
+    Source of truth for every generated size; see scripts/generate-icons.mjs.
+  -->
+  <rect width="512" height="512" rx="112" fill="#1A1412"/>
+
+  <!-- Crust: the slice's wide back edge. -->
+  <path d="M256 452 84 168a20 20 0 0 1 9-29 372 372 0 0 1 326 0 20 20 0 0 1 9 29Z" fill="#E8A33D"/>
+
+  <!-- Cheese: inset from the crust so the darker rim reads at small sizes. -->
+  <path d="M256 408 124 190a330 330 0 0 1 264 0Z" fill="#F5CE72"/>
+
+  <!-- Pepperoni, placed to stay distinct once scaled down. -->
+  <circle cx="204" cy="243" r="27" fill="#C6382E"/>
+  <circle cx="310" cy="243" r="27" fill="#C6382E"/>
+  <circle cx="256" cy="330" r="27" fill="#C6382E"/>
+</svg>

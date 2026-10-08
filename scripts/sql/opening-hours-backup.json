@@ -1,0 +1,50 @@
+[
+  {
+    "day": "monday",
+    "open": "16:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "tuesday",
+    "open": "16:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "wednesday",
+    "open": "16:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "thursday",
+    "open": "16:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "friday",
+    "open": "16:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "saturday",
+    "open": "14:45",
+    "close": "02:45",
+    "isClosed": false
+  },
+  {
+    "day": "sunday",
+    "open": "11:45",
+    "close": "01:45",
+    "isClosed": false
+  },
+  {
+    "day": "holiday",
+    "open": "12:00",
+    "close": "01:45",
+    "isClosed": false
+  }
+]

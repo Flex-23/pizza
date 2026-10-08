@@ -1,0 +1,6 @@
+{
+  "siteUrl": "https://pizzadaynight.de",
+  "token": "PASTE_THE_SAME_VALUE_AS_PRINT_AGENT_TOKEN_ON_THE_SERVER",
+  "printerName": "",
+  "pollMs": 3000
+}

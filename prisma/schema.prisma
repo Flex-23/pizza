@@ -1,0 +1,313 @@
+// Pizza Day & Night — Lieferservice Karlsruhe
+// Database schema (PostgreSQL, hosted on Supabase).
+//
+// NOTE: No menu content lives here. Every category and menu item is created at
+// runtime through the hidden admin dashboard.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  // PostgreSQL, hosted on Supabase. The column types below (`VarChar`,
+  // `Decimal`, `Text`) mean the same thing on both engines, so the model is
+  // unchanged from the MySQL/XAMPP setup this started on — see DEPLOY.md for
+  // what switching back would involve.
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  /// Day-to-day manager: incoming orders and the restaurant's settings.
+  ADMIN
+  /// Owner account: everything, including the menu and the hidden login.
+  MASTER
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  CARD_ON_DELIVERY
+  ONLINE
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum OrderType {
+  DELIVERY
+  PICKUP
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String   @db.VarChar(120)
+  phone        String?  @db.VarChar(40)
+  passwordHash String   @db.VarChar(255)
+  role         UserRole @default(CUSTOMER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  /// When this account last placed an order. Seeded to the sign-up time on
+  /// registration (the column default) so a fresh account is never mistaken for
+  /// a dormant one, then bumped on every order the customer places. Purely
+  /// internal — it never surfaces on a customer-facing view; the inactive-user
+  /// cleanup job (see `scripts/purge-inactive-users.ts`) is its only reader.
+  lastOrderAt  DateTime? @default(now())
+
+  addresses Address[]
+  orders    Order[]
+
+  @@index([role])
+  @@index([lastOrderAt])
+  @@map("users")
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String?  @db.VarChar(60)
+  street     String   @db.VarChar(180)
+  postalCode String   @db.VarChar(12)
+  city       String   @db.VarChar(80)
+  // Stadtteil, auto-filled from the street dataset at sign-up. Optional so
+  // addresses created before this column (or through the free-text checkout
+  // flow) stay valid.
+  district   String?  @db.VarChar(80)
+  notes      String?  @db.VarChar(255)
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  nameAr    String   @db.VarChar(120)
+  nameDe    String   @db.VarChar(120)
+  slug      String   @unique @db.VarChar(140)
+  imageUrl  String?  @db.VarChar(500)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items MenuItem[]
+
+  @@index([isActive, sortOrder])
+  @@map("categories")
+}
+
+model MenuItem {
+  id            String  @id @default(cuid())
+  categoryId    String
+  nameAr        String  @db.VarChar(160)
+  nameDe        String  @db.VarChar(160)
+  descriptionAr String? @db.Text
+  descriptionDe String? @db.Text
+
+  /// Regular price in EUR.
+  price Decimal @db.Decimal(10, 2)
+
+  /// Percentage discount (0-90). Ignored when discountPrice is set.
+  discountPercent Int @default(0)
+
+  /// Explicit post-discount price in EUR. Takes precedence over discountPercent.
+  discountPrice Decimal? @db.Decimal(10, 2)
+
+  imageUrl    String?  @db.VarChar(500)
+  isAvailable Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+
+  /// Whether the customer may attach a free-text note to this dish ("no onions",
+  /// "extra spicy"). Off by default, which is both the safe migration value for
+  /// every dish that already exists and the right answer for most of the menu:
+  /// a can of Coke has nothing to customise, and an input on its card would only
+  /// invite requests the kitchen cannot honour. The master turns it on per dish.
+  allowCustomNote Boolean @default(false)
+  /// string[] — e.g. ["vegetarian", "spicy", "halal"]
+  tags        Json?
+  /// string[] — allergen codes
+  allergens   Json?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId, sortOrder])
+  @@index([isAvailable, isFeatured])
+  @@map("menu_items")
+}
+
+model DeliveryZone {
+  id          String  @id @default(cuid())
+  postalCode  String  @db.VarChar(12)
+  areaName    String  @db.VarChar(100)
+  deliveryFee Decimal @db.Decimal(10, 2)
+  minOrder    Decimal @db.Decimal(10, 2)
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  @@unique([postalCode, areaName])
+  @@index([isActive, sortOrder])
+  @@map("delivery_zones")
+}
+
+model Order {
+  id          String  @id @default(cuid())
+  orderNumber String  @unique @db.VarChar(24)
+  userId      String?
+
+  customerName String  @db.VarChar(120)
+  phone        String  @db.VarChar(40)
+  email        String? @db.VarChar(160)
+
+  orderType  OrderType @default(DELIVERY)
+  street     String?   @db.VarChar(180)
+  postalCode String?   @db.VarChar(12)
+  city       String?   @db.VarChar(80)
+
+  /// Human-friendly ticket number within the shift ("Order #1"), reset every
+  /// shift (see OrderCounter). Null only for orders placed before the counter
+  /// existed. `shiftDate` is the business-date key (YYYY-MM-DD) the number
+  /// belongs to, so the sequence and its reset window travel with the row.
+  dailySeq  Int?
+  shiftDate String? @db.VarChar(10)
+
+  /// OrderLine[] — immutable snapshot of what was ordered (name + unit price at
+  /// purchase time), so later menu edits never rewrite order history.
+  items Json
+
+  subtotal      Decimal @db.Decimal(10, 2)
+  deliveryFee   Decimal @db.Decimal(10, 2)
+  discountTotal Decimal @db.Decimal(10, 2)
+  total         Decimal @db.Decimal(10, 2)
+
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus @default(UNPAID)
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Print queue for the restaurant PC's agent (see `agent/print-agent.mjs`).
+  /// The server has no printer of its own once the app is hosted, so a receipt
+  /// is *requested* here and the agent — which does sit next to the XP-80C —
+  /// picks it up, prints it, and acknowledges. Deliberately three columns on
+  /// the order rather than a queue table: there is exactly one receipt per
+  /// order, and a reprint is the same receipt again, not a new job.
+  ///
+  /// A row is pending when `printRequestedAt` is set and `printedAt` is either
+  /// null or older than it — which is what makes a reprint a single write.
+  /// Both null (every row that existed before this column) means "leave alone",
+  /// so adding the columns never floods the printer with the back catalogue.
+  printRequestedAt DateTime?
+  printedAt        DateTime?
+  /// Last failure reported by the agent, kept so the dashboard can say *why*
+  /// nothing came out. Cleared on the next success.
+  printError       String?   @db.VarChar(400)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([shiftDate])
+  @@index([userId, createdAt])
+  @@index([printRequestedAt, printedAt])
+  @@map("orders")
+}
+
+/// One row per shift, holding the last ticket number handed out that shift. The
+/// order counter reads and bumps this atomically so two orders never share a
+/// number; a new shift simply starts a new row back at 1. Rows for closed shifts
+/// can be pruned freely — the number already lives on each Order.
+model OrderCounter {
+  /// Business-date key (YYYY-MM-DD) of the shift.
+  shiftDate String   @id @db.VarChar(10)
+  lastSeq   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("order_counters")
+}
+
+/// One row per calendar day: the day's order count and takings, written when the
+/// day is archived at shift close. It lets the reports keep showing a day's
+/// totals after the detailed orders behind them are purged by the retention job,
+/// so no report ever breaks on missing history.
+model OrderDailyArchive {
+  /// Calendar-day key (YYYY-MM-DD), local time — matches the reports' day.
+  day        String   @id @db.VarChar(10)
+  orderCount Int      @default(0)
+  revenue    Decimal  @default(0) @db.Decimal(10, 2)
+  archivedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("order_daily_archives")
+}
+
+/// Single-row table (id is always "default") holding everything the manager can
+/// tune without a deploy.
+model Settings {
+  id String @id @default("default")
+
+  isOpen             Boolean @default(true)
+  promoBannerEnabled Boolean @default(false)
+
+  /// Master-only. Whether PayPal is offered at checkout alongside cash on
+  /// delivery. Off by default: with no provider wired an ONLINE order would be
+  /// recorded unpaid, so the owner opts in deliberately. When off, checkout
+  /// hides PayPal entirely and every order is cash on delivery.
+  isPaypalEnabled Boolean @default(false)
+
+  promoBannerAr      String? @db.VarChar(255)
+  promoBannerDe      String? @db.VarChar(255)
+
+  /// string[] — image URLs shown in the rotating gallery on the home page.
+  /// Uploaded from the dashboard; empty until the manager adds some.
+  heroImages Json?
+
+  minOrderValue Decimal @default(0) @db.Decimal(10, 2)
+  deliveryFee   Decimal @default(0) @db.Decimal(10, 2)
+
+  /// Receipt paper width in millimetres: 58 or 80. Master-only setting.
+  receiptWidthMm   Int      @default(58)
+  freeDeliveryFrom Decimal? @db.Decimal(10, 2)
+
+  restaurantNameAr String  @default("بيتزا داي أند نايت") @db.VarChar(160)
+  restaurantNameDe String  @default("Pizza Day & Night") @db.VarChar(160)
+  street           String  @default("Hardtstraße 32") @db.VarChar(180)
+  postalCode       String  @default("76185") @db.VarChar(12)
+  city             String  @default("Karlsruhe") @db.VarChar(80)
+  phone            String  @default("0721 8601726") @db.VarChar(40)
+  phone2           String? @db.VarChar(40)
+  fax              String? @db.VarChar(40)
+  email            String? @db.VarChar(160)
+  facebookUrl      String? @db.VarChar(255)
+  mapEmbedUrl      String? @db.VarChar(1000)
+
+  /// Master-only. The link a QR code on the printed receipt points to
+  /// (e.g. the online-ordering page). Regenerated on every receipt, so
+  /// changing it here updates all future prints.
+  salesUrl String? @db.VarChar(500)
+
+  /// OpeningHour[] — one entry per weekday plus holidays.
+  openingHours Json?
+
+  termsAr     String? @db.Text
+  termsDe     String? @db.Text
+  privacyAr   String? @db.Text
+  privacyDe   String? @db.Text
+  allergensAr String? @db.Text
+  allergensDe String? @db.Text
+
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
